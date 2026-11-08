@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Message Board dApp</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Ethers.js from Week 8 slides -->
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+</head>
+<body>
+    <header>
+        <h1>Student Message Board</h1>
+        <p>A decentralized application built for MG3012 - Blockchain Technology for Business.</p>
+        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Ethereum_logo_2014.svg/150px-Ethereum_logo_2014.svg.png" alt="Ethereum Logo" width="50">
+    </header>
+
+    <main>
+        <!-- Wallet & Network Section -->
+        <section id="wallet-section">
+            <h2>1. Connect Wallet</h2>
+            <button id="connectBtn" onclick="connectWallet()">Connect MetaMask</button>
+            <p><strong>Status:</strong> <span id="walletStatus">Disconnected</span></p>
+            <p><strong>Network:</strong> <span id="networkStatus">Unknown</span></p>
+        </section>
+
+        <!-- Write Section -->
+        <section id="write-section">
+            <h2>2. Post a Message</h2>
+            <p>Write your permanent study note or message below. You can only post once.</p>
+            <input type="text" id="messageInput" placeholder="Enter your message here..." />
+            <button onclick="postMessage()">Submit to Blockchain</button>
+            <p id="txStatus" class="status-msg"></p>
+        </section>
+
+        <!-- Read Section -->
+        <section id="read-section">
+            <h2>3. Read a Message</h2>
+            <input type="text" id="readAddressInput" placeholder="Enter user wallet address (0x...)" />
+            <button onclick="readMessage()">Read Message</button>
+            <p><strong>Result:</strong> <span id="readResult">No data fetched yet.</span></p>
+        </section>
+
+        <!-- Project Info -->
+        <section id="info-section">
+            <h2>Project Information</h2>
+            <ul>
+                <li><strong>Network:</strong> Sepolia Testnet</li>
+                <li><strong>Language:</strong> Solidity & JavaScript</li>
+                <li><strong>Library:</strong> Ethers.js</li>
+            </ul>
+            <p>Read the official <a href="https://ethereum.org/en/developers/docs/" target="_blank">Ethereum Documentation</a> for more details.</p>
+        </section>
+    </main>
+
+    <footer>
+        <p>Created by a BS FinTech Student. Fall 2026.</p>
+    </footer>
+
+    <script>
+        // --- CONFIGURATION ---
+        // AFTER DEPLOYMENT, PASTE YOUR REAL CONTRACT ADDRESS HERE
+        const contractAddress = "0xC639e2dE5d9812Ba49196745C4BE1a0EC8d11425";
+        
+        const contractABI = [
+            "function postMessage(string calldata _msg) public",
+            "function readMessage(address _user) public view returns (string memory, uint)"
+        ];
+
+        let provider;
+        let signer;
+        let contract;
+
+        // --- CONNECT WALLET & CHECK NETWORK ---
+        async function connectWallet() {
+            if (!window.ethereum) {
+                alert("Please install MetaMask to use this dApp!");
+                return;
+            }
+
+            try {
+                // Request account access
+                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                const account = accounts[0];
+                document.getElementById("walletStatus").innerText = "Connected: " + account;
+
+                provider = new ethers.providers.Web3Provider(window.ethereum);
+                signer = provider.getSigner();
+                contract = new ethers.Contract(contractAddress, contractABI, signer);
+
+                checkNetwork();
+
+                // Listen for account changes
+                window.ethereum.on('accountsChanged', function (accounts) {
+                    document.getElementById("walletStatus").innerText = "Connected: " + accounts[0];
+                });
+
+                // Listen for network changes
+                window.ethereum.on('chainChanged', function () {
+                    window.location.reload();
+                });
+
+            } catch (error) {
+                console.error(error);
+                alert("Wallet connection failed.");
+            }
+        }
+
+        async function checkNetwork() {
+            const network = await provider.getNetwork();
+            // Sepolia Chain ID is 11155111
+            if (network.chainId !== 11155111) {
+                document.getElementById("networkStatus").innerText = "WRONG NETWORK. Please switch to Sepolia.";
+                document.getElementById("networkStatus").style.color = "red";
+                alert("You are on the wrong network. Please open MetaMask and switch to Sepolia Testnet.");
+            } else {
+                document.getElementById("networkStatus").innerText = "Sepolia Testnet (Correct)";
+                document.getElementById("networkStatus").style.color = "green";
+            }
+        }
+
+        // --- WRITE TRANSACTION ---
+        async function postMessage() {
+            if (!contract) {
+                alert("Please connect your wallet first.");
+                return;
+            }
+
+            const msgText = document.getElementById("messageInput").value;
+            if (msgText.trim() === "") {
+                alert("Please enter a message.");
+                return;
+            }
+
+            const txStatus = document.getElementById("txStatus");
+            txStatus.innerText = "Waiting for MetaMask approval...";
+            txStatus.style.color = "blue";
+
+            try {
+                const tx = await contract.postMessage(msgText);
+                txStatus.innerText = "Transaction sent! Waiting for blockchain confirmation... Hash: " + tx.hash;
+                
+                await tx.wait(); // Wait for mining
+                
+                txStatus.innerText = "Success! Message posted to the blockchain.";
+                txStatus.style.color = "green";
+                document.getElementById("messageInput").value = "";
+            } catch (error) {
+                console.error(error);
+                txStatus.innerText = "Transaction failed or rejected.";
+                txStatus.style.color = "red";
+            }
+        }
+
+        // --- READ TRANSACTION ---
+        async function readMessage() {
+            if (!contract) {
+                alert("Please connect your wallet first.");
+                return;
+            }
+
+            const targetAddress = document.getElementById("readAddressInput").value;
+            if (targetAddress.trim() === "" || targetAddress.length !== 42) {
+                alert("Please enter a valid Ethereum address.");
+                return;
+            }
+
+            try {
+                // Read operations do not cost gas
+                const data = await contract.readMessage(targetAddress);
+                const text = data[0];
+                const timestamp = data[1];
+
+                if (text === "") {
+                    document.getElementById("readResult").innerText = "This user has not posted a message.";
+                } else {
+                    // Convert UNIX timestamp to readable date
+                    const date = new Date(timestamp * 1000).toLocaleString();
+                    document.getElementById("readResult").innerText = `"${text}" (Posted on: ${date})`;
+                }
+            } catch (error) {
+                console.error(error);
+                document.getElementById("readResult").innerText = "Error reading data. Check console.";
+            }
+        }
+    </script>
+</body>
+</html>
